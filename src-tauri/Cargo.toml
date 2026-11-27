@@ -1,0 +1,47 @@
+[package]
+name = "sql-archive"
+version = "0.1.3"
+description = "数据库脚本归档工具：整理、校验、生成多方言脚本并写入 Flyway 目录"
+authors = ["sql-archive"]
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+name = "sql_archive_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sql-archive"
+path = "src/main.rs"
+
+[features]
+default = []
+portable = []
+
+[build-dependencies]
+tauri-build = { version = "2.5.3", features = [] }
+# 与 tag-push 相同的 indexmap 特性修复，避免 schemars 构建期探测漂移。
+indexmap = { version = "1.9", features = ["std"] }
+
+[dependencies]
+base64 = "0.22.1"
+chrono = { version = "0.4.42", features = ["serde"] }
+parking_lot = "0.12.5"
+regex = "1.11.1"
+rusqlite = { version = "0.37.0", features = ["bundled"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+tauri = { version = "2.11.1", features = [] }
+tauri-plugin-dialog = "2.7.0"
+tauri-plugin-single-instance = "2.2.0"
+tempfile = "3.23.0"
+thiserror = "2.0.17"
+uuid = { version = "1.18.1", features = ["v4", "serde"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

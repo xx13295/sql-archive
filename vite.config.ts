@@ -1,0 +1,14 @@
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+
+export default defineConfig({
+  plugins: [vue()],
+  clearScreen: false,
+  server: {
+    port: 1420,
+    strictPort: true,
+    watch: { ignored: ["**/src-tauri/**", "**/.sandbox/**", "**/.devdata/**", "**/dist/**"] }
+  },
+  envPrefix: ["VITE_", "TAURI_ENV_"],
+  build: { target: "es2021", minify: "esbuild", sourcemap: false }
+});

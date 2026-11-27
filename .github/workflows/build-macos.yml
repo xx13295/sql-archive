@@ -1,0 +1,113 @@
+name: build-macos
+
+# 在 macOS 上编译 Tauri 应用，分别产出 Apple Silicon（arm64）与 Intel（x64）的 .app / .dmg。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # 没有 Apple 开发者证书时用 ad-hoc 签名，保证 CI 产物可以直接安装验证。
+  APPLE_SIGNING_IDENTITY: "-"
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-15 为 Apple Silicon，macos-15-intel 为 Intel 机器。
+          - runner: macos-15
+            arch: arm64
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            arch: x64
+            target: x86_64-apple-darwin
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm（版本取自 package.json 的 packageManager）
+        uses: pnpm/action-setup@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.90.0
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: 缓存 Rust 构建产物
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      # 引擎 JAR 不随仓库提供，桥接 JAR 会在编译期通过 include_bytes! 嵌入二进制，
+      # 因此必须保证 java-bridge/dist 下存在产物（正常提交时会随仓库带出）。
+      - name: 确保 Java 桥接 JAR 存在
+        run: |
+          set -euo pipefail
+          jar="java-bridge/dist/sql-archive-bridge.jar"
+          if [ ! -f "$jar" ]; then
+            cp src-tauri/resources/java-bridge/sql-archive-bridge.jar "$jar"
+          fi
+          test -s "$jar"
+
+      - name: 前端类型检查与测试
+        run: |
+          pnpm check
+          pnpm test
+
+      - name: Rust 测试
+        run: cargo test --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
+
+      - name: Rust clippy
+        run: >
+          cargo clippy --manifest-path src-tauri/Cargo.toml
+          --all-targets --all-features --target ${{ matrix.target }}
+          -- -D warnings
+
+      - name: 构建 macOS 应用（.app + .dmg）
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles app,dmg
+
+      - name: 生成 DMG 校验和
+        run: |
+          set -euo pipefail
+          cd "src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          shasum -a 256 ./*.dmg > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: sql-archive-macos-${{ matrix.arch }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/SHA256SUMS.txt
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app
+          if-no-files-found: error
+          # .dmg 本身已是压缩包，避免重复压缩
+          compression-level: 0
